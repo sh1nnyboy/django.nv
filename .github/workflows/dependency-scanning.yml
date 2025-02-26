@@ -1,5 +1,4 @@
 name: Dependency Scanning
-
 on:
   push:
     branches: [ main ]
@@ -17,12 +16,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'
+          node-version: '20'
       
       - name: Install dependencies
         run: |
-          npm install
-          npm install -g npm@latest
+          if [ -f "package.json" ]; then
+            if [ -f "package-lock.json" ]; then
+              npm ci
+            else
+              npm install
+            fi
+          else
+            echo "No package.json found, skipping npm install"
+          fi
       
       - name: Run npm audit
         run: npm audit --audit-level=high
