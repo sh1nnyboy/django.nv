@@ -1,12 +1,11 @@
 name: Dependency Scanning
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
   schedule:
-    - cron: '0 0 * * 0'  # Weekly run
+    - cron: '0 0 0' # Weekly run
 
 jobs:
   dependency-check:
@@ -15,23 +14,33 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
+      
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '16'
-
+      
       - name: Install dependencies
         run: npm ci
-
+      
       - name: Run npm audit
         run: npm audit --audit-level=high
         continue-on-error: true
-
-      - name: Scan with Snyk
-        uses: snyk/actions/node@master
-        continue-on-error: true
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
         with:
-          args: --severity-threshold=high
+          project: 'My Project'
+          path: '.'
+          format: 'HTML'
+          out: 'reports'
+          args: >
+            --enableExperimental
+            --scan node_modules
+            --suppression suppression.xml
+      
+      - name: Upload dependency check report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dependency-check-report
+          path: reports
