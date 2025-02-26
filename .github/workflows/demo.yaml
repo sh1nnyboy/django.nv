@@ -1,31 +1,108 @@
-name: Django                                  # workflow name
+name: Security Scanning Demo
 
 on:
-  push:                                       
-    branches:                                 # similar to "only" in GitLab
-      - main
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  build:
-    runs-on: ubuntu-20.04                   # similar to "image" in GitLab
+  security-scan:
+    name: Comprehensive Security Scan
+    runs-on: ubuntu-latest
     steps:
-      - run: echo "This is a build step"      # similar to "script" in GitLab
-
-  test:
-    runs-on: ubuntu-20.04
-    needs: build
-    steps:
-      - run: echo "This is a test step"
-
-  integration:
-    runs-on: ubuntu-20.04
-    steps:
-      - run: echo "This is an integration step"
-      - run: exit 1
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      # Secret Scanning with Gitleaks
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # Setup Node.js (used by multiple steps)
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      
+      # Install dependencies (used by multiple steps)
+      - name: Install dependencies
+        run: |
+          if [ -f "package.json" ]; then
+            if [ -f "package-lock.json" ]; then
+              npm ci
+            else
+              npm install
+            fi
+          else
+            echo "No package.json found, skipping npm install"
+          fi
+      
+      # Dependency Vulnerability Scanning
+      - name: Run npm audit
+        if: ${{ hashFiles('package.json') != '' }}
+        run: npm audit --audit-level=high
         continue-on-error: true
-
-  prod:
-    runs-on: ubuntu-20.04
-    needs: integration
-    steps:
-      - run: echo "This is a deploy step"
+      
+      - name: Create empty suppression file
+        run: |
+          echo '<?xml version="1.0" encoding="UTF-8"?><suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd"></suppressions>' > suppression.xml
+      
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'My Project'
+          path: '.'
+          format: 'HTML'
+          out: 'reports'
+          args: >
+            --enableExperimental
+            --scan node_modules
+            --suppression suppression.xml
+      
+      - name: Upload dependency check report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: reports
+      
+      # License Compliance Scanning
+      - name: Install license-checker
+        run: npm install -g license-checker
+      
+      - name: Check licenses
+        run: |
+          if [ -f "package.json" ]; then
+            # Generate license report
+            license-checker --json --out license-report.json
+            
+            # Check for disallowed licenses
+            license-checker --failOn "GPL;AGPL;LGPL" || echo "Warning: Potentially problematic licenses found"
+            
+            # List all licenses for review
+            echo "License summary:"
+            license-checker --summary
+          else
+            echo "No package.json found, skipping license check"
+            echo '{}' > license-report.json
+          fi
+      
+      # SBOM Generation
+      - name: Generate SBOM with CycloneDX
+        run: |
+          npm install -g @cyclonedx/cyclonedx-npm
+          if [ -f "package.json" ]; then
+            cyclonedx-npm --output-file sbom.xml
+          else
+            echo "No package.json found, creating empty SBOM"
+            echo '<?xml version="1.0" encoding="UTF-8"?><bom xmlns="http://cyclonedx.org/schema/bom/1.3" version="1"><metadata><component type="application"><name>Empty Project</name><version>0.0.0</version></component></metadata></bom>' > sbom.xml
+          fi
+      
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.xml
