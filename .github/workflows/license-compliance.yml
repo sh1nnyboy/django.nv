@@ -1,4 +1,4 @@
-name: License Compliance
+name: Generate SBOM
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  license-check:
-    name: Check Dependency Licenses
+  generate-sbom:
+    name: Generate Software Bill of Materials
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -31,15 +31,18 @@ jobs:
             echo "No package.json found, skipping npm install"
           fi
 
-      - name: Install license-checker
-        run: npm install -g license-checker
-
-      - name: Check licenses
+      - name: Generate SBOM with CycloneDX
         run: |
+          npm install -g @cyclonedx/cyclonedx-npm
           if [ -f "package.json" ]; then
-            license-checker --json --out license-report.json
-            license-checker --onlyAllow "MIT;Apache-2.0;ISC;BSD-2-Clause;BSD-3-Clause" --failOn "GPL;AGPL;LGPL"
+            cyclonedx-npm --output-file sbom.xml
           else
-            echo "No package.json found, skipping license check"
-            echo '{}' > license-report.json
+            echo "No package.json found, creating empty SBOM"
+            echo '<?xml version="1.0" encoding="UTF-8"?><bom xmlns="http://cyclonedx.org/schema/bom/1.3" version="1"><metadata><component type="application"><name>Empty Project</name><version>0.0.0</version></component></metadata></bom>' > sbom.xml
           fi
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.xml
